@@ -1,12 +1,17 @@
 import { motion } from 'framer-motion';
 import { ProductCard } from './ProductCard';
-import { getFeaturedProducts } from '@/data/products';
+import { useFeaturedProducts } from '@/hooks/useProducts';
 import { Link } from 'react-router-dom';
 import { Button } from './ui/button';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Loader2 } from 'lucide-react';
 
 export const FeaturedProducts = () => {
-  const featuredProducts = getFeaturedProducts();
+  const { data: featuredProducts = [], isLoading, error } = useFeaturedProducts();
+
+  // Don't render the section if there's an error or no products
+  if (error || (!isLoading && featuredProducts.length === 0)) {
+    return null;
+  }
 
   return (
     <section className="py-20">
@@ -28,11 +33,18 @@ export const FeaturedProducts = () => {
           </p>
         </motion.div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {featuredProducts.map((product, index) => (
-            <ProductCard key={product.id} product={product} index={index} />
-          ))}
-        </div>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <span className="ml-2 text-muted-foreground">Loading featured products...</span>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {featuredProducts.map((product, index) => (
+              <ProductCard key={product.id} product={product} index={index} />
+            ))}
+          </div>
+        )}
 
         <motion.div
           initial={{ opacity: 0, y: 20 }}

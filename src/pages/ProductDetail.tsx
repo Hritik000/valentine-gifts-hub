@@ -3,20 +3,39 @@ import { motion } from 'framer-motion';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/button';
-import { getProductBySlug, products } from '@/data/products';
+import { useProductBySlug, useRelatedProducts } from '@/hooks/useProducts';
 import { useCart } from '@/contexts/CartContext';
 import { ProductCard } from '@/components/ProductCard';
 import { 
-  Heart, Star, ShoppingBag, Check, Download, Shield, ArrowLeft, 
-  FileText, Clock, RefreshCw 
+  Heart, Star, ShoppingBag, Download, Shield, ArrowLeft, 
+  FileText, Clock, RefreshCw, Loader2 
 } from 'lucide-react';
 
 const ProductDetail = () => {
   const { slug } = useParams<{ slug: string }>();
-  const product = getProductBySlug(slug || '');
+  const { data: product, isLoading, error } = useProductBySlug(slug || '');
+  const { data: relatedProducts = [] } = useRelatedProducts(
+    product?.category || '', 
+    product?.id || ''
+  );
   const { addToCart, isInCart } = useCart();
 
-  if (!product) {
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="min-h-screen">
+        <Navbar />
+        <div className="container mx-auto px-4 py-20 flex items-center justify-center">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <span className="ml-2 text-muted-foreground">Loading product...</span>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
+
+  // Error or not found
+  if (error || !product) {
     return (
       <div className="min-h-screen">
         <Navbar />
@@ -36,10 +55,6 @@ const ProductDetail = () => {
   const discount = product.originalPrice 
     ? Math.round((1 - product.price / product.originalPrice) * 100) 
     : 0;
-
-  const relatedProducts = products
-    .filter(p => p.category === product.category && p.id !== product.id)
-    .slice(0, 4);
 
   const features = [
     { icon: Download, text: 'Instant digital download' },
@@ -196,8 +211,8 @@ const ProductDetail = () => {
           <section className="mt-20">
             <h2 className="font-display text-2xl font-bold mb-8">You May Also Love</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {relatedProducts.map((product, index) => (
-                <ProductCard key={product.id} product={product} index={index} />
+              {relatedProducts.map((relatedProduct, index) => (
+                <ProductCard key={relatedProduct.id} product={relatedProduct} index={index} />
               ))}
             </div>
           </section>
