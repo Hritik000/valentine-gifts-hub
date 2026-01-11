@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
+import { z } from 'zod';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/button';
@@ -9,20 +10,72 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Mail, Phone, MapPin, Send, Heart } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
+// Contact form validation schema
+const contactSchema = z.object({
+  name: z.string()
+    .trim()
+    .min(1, { message: "Name is required" })
+    .max(100, { message: "Name must be less than 100 characters" }),
+  email: z.string()
+    .trim()
+    .email({ message: "Invalid email address" })
+    .max(255, { message: "Email must be less than 255 characters" }),
+  subject: z.string()
+    .trim()
+    .min(1, { message: "Subject is required" })
+    .max(200, { message: "Subject must be less than 200 characters" }),
+  message: z.string()
+    .trim()
+    .min(1, { message: "Message is required" })
+    .max(2000, { message: "Message must be less than 2000 characters" }),
+});
+
+type ContactFormData = z.infer<typeof contactSchema>;
+
 const Contact = () => {
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<ContactFormData>({
     name: '',
     email: '',
     subject: '',
     message: '',
   });
+  const [errors, setErrors] = useState<Partial<Record<keyof ContactFormData, string>>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const validateForm = (): boolean => {
+    const result = contactSchema.safeParse(formData);
+    if (!result.success) {
+      const fieldErrors: Partial<Record<keyof ContactFormData, string>> = {};
+      result.error.errors.forEach((error) => {
+        const field = error.path[0] as keyof ContactFormData;
+        if (!fieldErrors[field]) {
+          fieldErrors[field] = error.message;
+        }
+      });
+      setErrors(fieldErrors);
+      return false;
+    }
+    setErrors({});
+    return true;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate form data
+    if (!validateForm()) {
+      toast({
+        title: "Validation Error",
+        description: "Please fix the errors in the form.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     setIsSubmitting(true);
     
-    // Simulate form submission
+    // Simulate form submission (mock - no actual backend yet)
+    // When backend is implemented, this should call an Edge Function
     await new Promise(resolve => setTimeout(resolve, 1000));
     
     toast({
@@ -31,6 +84,7 @@ const Contact = () => {
     });
     
     setFormData({ name: '', email: '', subject: '', message: '' });
+    setErrors({});
     setIsSubmitting(false);
   };
 
@@ -90,8 +144,12 @@ const Contact = () => {
                         placeholder="Your name"
                         value={formData.name}
                         onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                        required
+                        maxLength={100}
+                        aria-invalid={!!errors.name}
                       />
+                      {errors.name && (
+                        <p className="text-sm text-destructive mt-1">{errors.name}</p>
+                      )}
                     </div>
                     <div>
                       <label className="text-sm font-medium mb-2 block">Email</label>
@@ -100,8 +158,12 @@ const Contact = () => {
                         placeholder="your@email.com"
                         value={formData.email}
                         onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                        required
+                        maxLength={255}
+                        aria-invalid={!!errors.email}
                       />
+                      {errors.email && (
+                        <p className="text-sm text-destructive mt-1">{errors.email}</p>
+                      )}
                     </div>
                   </div>
                   
@@ -111,8 +173,12 @@ const Contact = () => {
                       placeholder="How can we help?"
                       value={formData.subject}
                       onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
-                      required
+                      maxLength={200}
+                      aria-invalid={!!errors.subject}
                     />
+                    {errors.subject && (
+                      <p className="text-sm text-destructive mt-1">{errors.subject}</p>
+                    )}
                   </div>
                   
                   <div>
@@ -122,8 +188,12 @@ const Contact = () => {
                       rows={5}
                       value={formData.message}
                       onChange={(e) => setFormData({ ...formData, message: e.target.value })}
-                      required
+                      maxLength={2000}
+                      aria-invalid={!!errors.message}
                     />
+                    {errors.message && (
+                      <p className="text-sm text-destructive mt-1">{errors.message}</p>
+                    )}
                   </div>
 
                   <Button 
