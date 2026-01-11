@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, ShoppingBag, Menu, X } from 'lucide-react';
+import { Heart, ShoppingBag, Menu, X, Shield, LogOut, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCart } from '@/contexts/CartContext';
+import { useAuth } from '@/hooks/useAuth';
 
 export const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
   const { getItemCount } = useCart();
+  const { user, isAdmin, signOut } = useAuth();
   const location = useLocation();
   const itemCount = getItemCount();
 
@@ -62,8 +64,31 @@ export const Navbar = () => {
             ))}
           </div>
 
-          {/* Cart & Mobile Menu */}
-          <div className="flex items-center gap-4">
+          {/* Right Side Actions */}
+          <div className="flex items-center gap-2">
+            {/* Admin Link */}
+            {isAdmin && (
+              <Link to="/admin">
+                <Button variant="ghost" size="icon" className="text-primary" title="Admin Dashboard">
+                  <Shield className="w-5 h-5" />
+                </Button>
+              </Link>
+            )}
+
+            {/* Auth Button */}
+            {user ? (
+              <Button variant="ghost" size="icon" onClick={signOut} title="Sign Out">
+                <LogOut className="w-5 h-5" />
+              </Button>
+            ) : (
+              <Link to="/auth">
+                <Button variant="ghost" size="icon" title="Sign In">
+                  <User className="w-5 h-5" />
+                </Button>
+              </Link>
+            )}
+
+            {/* Cart */}
             <Link to="/cart">
               <Button variant="ghost" size="icon" className="relative">
                 <ShoppingBag className="w-5 h-5" />
