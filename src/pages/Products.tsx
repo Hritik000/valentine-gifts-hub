@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { ProductCard } from '@/components/ProductCard';
-import { products, categories } from '@/data/products';
+import { useProducts, useProductCategories } from '@/hooks/useProducts';
 import { Button } from '@/components/ui/button';
-import { Search, SlidersHorizontal } from 'lucide-react';
+import { Search, SlidersHorizontal, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
 const Products = () => {
@@ -13,25 +13,30 @@ const Products = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'featured' | 'price-low' | 'price-high' | 'rating'>('featured');
 
-  const filteredProducts = products
-    .filter(product => {
-      const matchesCategory = selectedCategory === 'All' || product.category === selectedCategory;
-      const matchesSearch = product.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        product.shortDescription.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchesCategory && matchesSearch;
-    })
-    .sort((a, b) => {
-      switch (sortBy) {
-        case 'price-low':
-          return a.price - b.price;
-        case 'price-high':
-          return b.price - a.price;
-        case 'rating':
-          return b.rating - a.rating;
-        default:
-          return b.featured ? 1 : -1;
-      }
-    });
+  const { data: products = [], isLoading, error } = useProducts();
+  const { data: categories = ['All'] } = useProductCategories();
+
+  const filteredProducts = useMemo(() => {
+    return products
+      .filter(product => {
+        const matchesCategory = selectedCategory === 'All' || product.category === selectedCategory;
+        const matchesSearch = product.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          product.shortDescription.toLowerCase().includes(searchQuery.toLowerCase());
+        return matchesCategory && matchesSearch;
+      })
+      .sort((a, b) => {
+        switch (sortBy) {
+          case 'price-low':
+            return a.price - b.price;
+          case 'price-high':
+            return b.price - a.price;
+          case 'rating':
+            return b.rating - a.rating;
+          default:
+            return b.featured ? 1 : -1;
+        }
+      });
+  }, [products, selectedCategory, searchQuery, sortBy]);
 
   return (
     <div className="min-h-screen">
@@ -102,30 +107,65 @@ const Products = () => {
           </div>
         </motion.div>
 
-        {/* Products Grid */}
-        {filteredProducts.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredProducts.map((product, index) => (
-              <ProductCard key={product.id} product={product} index={index} />
-            ))}
+        {/* Loading State */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <span className="ml-2 text-muted-foreground">Loading products...</span>
           </div>
-        ) : (
+        )}
+
+        {/* Error State */}
+        {error && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             className="text-center py-16"
           >
-            <p className="text-muted-foreground text-lg">No products found matching your criteria.</p>
+            <p className="text-destructive text-lg">Failed to load products. Please try again.</p>
             <Button
               variant="outline"
               className="mt-4"
-              onClick={() => {
-                setSelectedCategory('All');
-                setSearchQuery('');
-              }}
+              onClick={() => window.location.reload()}
             >
-              Clear Filters
+              Retry
             </Button>
+          </motion.div>
+        )}
+
+        {/* Products Grid */}
+        {!isLoading && !error && filteredProducts.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {filteredProducts.map((product, index) => (
+              <ProductCard key={product.id} product={product} index={index} />
+            ))}
+          </div>
+        )}
+
+        {/* Empty State */}
+        {!isLoading && !error && filteredProducts.length === 0 && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-center py-16"
+          >
+            <p className="text-muted-foreground text-lg">
+              {products.length === 0 
+                ? 'No products available yet.' 
+                : 'No products found matching your criteria.'}
+            </p>
+            {products.length > 0 && (
+              <Button
+                variant="outline"
+                className="mt-4"
+                onClick={() => {
+                  setSelectedCategory('All');
+                  setSearchQuery('');
+                }}
+              >
+                Clear Filters
+              </Button>
+            )}
           </motion.div>
         )}
       </main>
