@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { Heart, Star, ShoppingBag } from 'lucide-react';
+import { Heart, ShoppingBag } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Product } from '@/types/product';
@@ -72,12 +72,6 @@ export const ProductCard = ({ product, index = 0 }: ProductCardProps) => {
             {product.shortDescription}
           </p>
 
-          {/* Rating */}
-          <div className="flex items-center gap-1 mt-3">
-            <Star className="w-4 h-4 text-gold fill-gold" />
-            <span className="text-sm font-medium">{product.rating}</span>
-            <span className="text-xs text-muted-foreground">({product.reviews} reviews)</span>
-          </div>
 
           {/* Price & Add to Cart */}
           <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">

@@ -7,7 +7,7 @@ import { useProductBySlug, useRelatedProducts } from '@/hooks/useProducts';
 import { useCart } from '@/contexts/CartContext';
 import { ProductCard } from '@/components/ProductCard';
 import { 
-  Heart, Star, ShoppingBag, Download, Shield, ArrowLeft, 
+  Heart, ShoppingBag, Download, Shield, ArrowLeft, 
   FileText, Clock, RefreshCw, Loader2 
 } from 'lucide-react';
 
@@ -61,7 +61,7 @@ const ProductDetail = () => {
     { icon: FileText, text: 'High-quality files included' },
     { icon: Clock, text: 'Lifetime access' },
     { icon: RefreshCw, text: 'Free updates' },
-    { icon: Shield, text: '7-day money-back guarantee' },
+    { icon: Shield, text: 'Secure payment' },
   ];
 
   return (
@@ -129,19 +129,6 @@ const ProductDetail = () => {
               {product.title}
             </h1>
 
-            {/* Rating */}
-            <div className="flex items-center gap-2 mt-4">
-              <div className="flex gap-1">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <Star 
-                    key={i} 
-                    className={`w-5 h-5 ${i < Math.floor(product.rating) ? 'text-gold fill-gold' : 'text-muted'}`} 
-                  />
-                ))}
-              </div>
-              <span className="font-medium">{product.rating}</span>
-              <span className="text-muted-foreground">({product.reviews} reviews)</span>
-            </div>
 
             {/* Price */}
             <div className="mt-6 p-4 bg-blush rounded-xl border border-primary/10">
