@@ -1,1 +1,4 @@
 project_id = "qmnhbtmnarhnvbmpskuu"
+
+[functions.download-product]
+verify_jwt = false
