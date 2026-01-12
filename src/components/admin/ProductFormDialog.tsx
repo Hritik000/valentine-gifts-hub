@@ -1,8 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Upload, FileCheck, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -55,6 +55,10 @@ export const ProductFormDialog = ({ open, onOpenChange, product }: ProductFormDi
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isEditing = !!product;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [currentFileUrl, setCurrentFileUrl] = useState<string | null>(null);
 
   const form = useForm<ProductFormValues>({
     resolver: zodResolver(productSchema),
@@ -90,6 +94,8 @@ export const ProductFormDialog = ({ open, onOpenChange, product }: ProductFormDi
         valentine_special: product.valentine_special,
         is_active: product.is_active,
       });
+      setCurrentFileUrl(product.file_url);
+      setSelectedFile(null);
     } else {
       form.reset({
         title: '',
@@ -105,11 +111,46 @@ export const ProductFormDialog = ({ open, onOpenChange, product }: ProductFormDi
         valentine_special: false,
         is_active: true,
       });
+      setCurrentFileUrl(null);
+      setSelectedFile(null);
     }
   }, [product, form]);
 
+  const uploadFile = async (file: File, productSlug: string): Promise<string> => {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${productSlug}-${Date.now()}.${fileExt}`;
+    
+    const { error: uploadError } = await supabase.storage
+      .from('digital-products')
+      .upload(fileName, file, {
+        cacheControl: '3600',
+        upsert: false
+      });
+    
+    if (uploadError) throw uploadError;
+    return fileName;
+  };
+
+  const deleteFile = async (filePath: string) => {
+    const { error } = await supabase.storage
+      .from('digital-products')
+      .remove([filePath]);
+    if (error) console.error('Failed to delete old file:', error);
+  };
+
   const createMutation = useMutation({
     mutationFn: async (values: ProductFormValues) => {
+      let fileUrl: string | null = null;
+      
+      if (selectedFile) {
+        setIsUploading(true);
+        try {
+          fileUrl = await uploadFile(selectedFile, values.slug);
+        } finally {
+          setIsUploading(false);
+        }
+      }
+
       const { error } = await supabase.from('products').insert([{
         title: values.title,
         slug: values.slug,
@@ -123,6 +164,7 @@ export const ProductFormDialog = ({ open, onOpenChange, product }: ProductFormDi
         bestseller: values.bestseller,
         valentine_special: values.valentine_special,
         is_active: values.is_active,
+        file_url: fileUrl,
         rating: 0,
         reviews: 0,
       }]);
@@ -134,6 +176,7 @@ export const ProductFormDialog = ({ open, onOpenChange, product }: ProductFormDi
       toast({ title: 'Product created successfully' });
       onOpenChange(false);
       form.reset();
+      setSelectedFile(null);
     },
     onError: (error: Error) => {
       toast({ title: 'Failed to create product', description: error.message, variant: 'destructive' });
@@ -143,11 +186,28 @@ export const ProductFormDialog = ({ open, onOpenChange, product }: ProductFormDi
   const updateMutation = useMutation({
     mutationFn: async (values: ProductFormValues) => {
       if (!product) return;
+      
+      let fileUrl: string | null = currentFileUrl;
+      
+      if (selectedFile) {
+        setIsUploading(true);
+        try {
+          // Delete old file if exists
+          if (currentFileUrl) {
+            await deleteFile(currentFileUrl);
+          }
+          fileUrl = await uploadFile(selectedFile, values.slug);
+        } finally {
+          setIsUploading(false);
+        }
+      }
+
       const { error } = await supabase
         .from('products')
         .update({
           ...values,
           original_price: values.original_price || null,
+          file_url: fileUrl,
         })
         .eq('id', product.id);
       if (error) throw error;
@@ -157,6 +217,7 @@ export const ProductFormDialog = ({ open, onOpenChange, product }: ProductFormDi
       queryClient.invalidateQueries({ queryKey: ['products'] });
       toast({ title: 'Product updated successfully' });
       onOpenChange(false);
+      setSelectedFile(null);
     },
     onError: (error: Error) => {
       toast({ title: 'Failed to update product', description: error.message, variant: 'destructive' });
@@ -171,7 +232,38 @@ export const ProductFormDialog = ({ open, onOpenChange, product }: ProductFormDi
     }
   };
 
-  const isSubmitting = createMutation.isPending || updateMutation.isPending;
+  const isSubmitting = createMutation.isPending || updateMutation.isPending || isUploading;
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+    }
+  };
+
+  const removeSelectedFile = () => {
+    setSelectedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const removeCurrentFile = async () => {
+    if (currentFileUrl && product) {
+      try {
+        await deleteFile(currentFileUrl);
+        await supabase
+          .from('products')
+          .update({ file_url: null })
+          .eq('id', product.id);
+        setCurrentFileUrl(null);
+        queryClient.invalidateQueries({ queryKey: ['admin-products'] });
+        toast({ title: 'File removed successfully' });
+      } catch (error) {
+        toast({ title: 'Failed to remove file', variant: 'destructive' });
+      }
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -299,6 +391,68 @@ export const ProductFormDialog = ({ open, onOpenChange, product }: ProductFormDi
                 </FormItem>
               )}
             />
+
+            {/* Digital Product File Upload */}
+            <div className="space-y-2">
+              <FormLabel>Digital Product File</FormLabel>
+              <div className="border-2 border-dashed border-border rounded-lg p-4">
+                {currentFileUrl && !selectedFile ? (
+                  <div className="flex items-center justify-between bg-muted/50 p-3 rounded-md">
+                    <div className="flex items-center gap-2">
+                      <FileCheck className="w-5 h-5 text-green-600" />
+                      <span className="text-sm font-medium">File uploaded</span>
+                      <span className="text-xs text-muted-foreground">({currentFileUrl})</span>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={removeCurrentFile}
+                      className="text-destructive hover:text-destructive"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ) : selectedFile ? (
+                  <div className="flex items-center justify-between bg-muted/50 p-3 rounded-md">
+                    <div className="flex items-center gap-2">
+                      <FileCheck className="w-5 h-5 text-primary" />
+                      <span className="text-sm font-medium">{selectedFile.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
+                      </span>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={removeSelectedFile}
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div 
+                    className="flex flex-col items-center justify-center py-4 cursor-pointer hover:bg-muted/50 rounded-md transition-colors"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Upload className="w-8 h-8 text-muted-foreground mb-2" />
+                    <span className="text-sm font-medium">Click to upload file</span>
+                    <span className="text-xs text-muted-foreground">PDF, ZIP, or any digital file</span>
+                  </div>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  onChange={handleFileChange}
+                  className="hidden"
+                  accept=".pdf,.zip,.rar,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.mp3,.mp4,.png,.jpg,.jpeg"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Upload the digital product file that customers will download after purchase.
+              </p>
+            </div>
 
             <div className="grid grid-cols-2 gap-4">
               <FormField
