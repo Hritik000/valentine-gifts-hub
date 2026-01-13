@@ -1,11 +1,13 @@
+import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import { useProductBySlug, useRelatedProducts } from '@/hooks/useProducts';
-import { useCart } from '@/contexts/CartContext';
 import { ProductCard } from '@/components/ProductCard';
+import { PaymentModal } from '@/components/PaymentModal';
+import { SampleImagesGallery } from '@/components/SampleImagesGallery';
 import { 
   Heart, ShoppingBag, Download, Shield, ArrowLeft, 
   FileText, Clock, RefreshCw, Loader2 
@@ -18,7 +20,7 @@ const ProductDetail = () => {
     product?.category || '', 
     product?.id || ''
   );
-  const { addToCart, isInCart } = useCart();
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
 
   // Loading state
   if (isLoading) {
@@ -41,7 +43,7 @@ const ProductDetail = () => {
         <Navbar />
         <div className="container mx-auto px-4 py-20 text-center">
           <h1 className="font-display text-3xl font-bold mb-4">Product Not Found</h1>
-          <p className="text-muted-foreground mb-8">The product you're looking for doesn't exist.</p>
+          <p className="text-muted-foreground mb-8">The product you're looking for doesn't exist or is no longer available.</p>
           <Link to="/products">
             <Button>Browse All Products</Button>
           </Link>
@@ -51,7 +53,6 @@ const ProductDetail = () => {
     );
   }
 
-  const inCart = isInCart(product.id);
   const discount = product.originalPrice 
     ? Math.round((1 - product.price / product.originalPrice) * 100) 
     : 0;
@@ -113,6 +114,11 @@ const ProductDetail = () => {
                 </span>
               )}
             </div>
+
+            {/* Sample Images Gallery */}
+            {product.sampleImages && product.sampleImages.length > 0 && (
+              <SampleImagesGallery images={product.sampleImages} productTitle={product.title} />
+            )}
           </motion.div>
 
           {/* Info */}
@@ -128,7 +134,6 @@ const ProductDetail = () => {
             <h1 className="font-display text-3xl sm:text-4xl font-bold mt-2">
               {product.title}
             </h1>
-
 
             {/* Price */}
             <div className="mt-6 p-4 bg-blush rounded-xl border border-primary/10">
@@ -166,29 +171,23 @@ const ProductDetail = () => {
               ))}
             </div>
 
-            {/* Add to Cart */}
-            <div className="mt-8 flex gap-4">
+            {/* Buy Now Button */}
+            <div className="mt-8">
               <Button
-                variant={inCart ? 'secondary' : 'romantic'}
+                variant="romantic"
                 size="xl"
-                className="flex-1"
-                onClick={() => addToCart(product)}
-                disabled={inCart}
+                className="w-full"
+                onClick={() => setIsPaymentModalOpen(true)}
               >
                 <ShoppingBag className="w-5 h-5" />
-                {inCart ? 'Already in Cart' : 'Add to Cart'}
+                Buy Now - ₹{product.price}
               </Button>
-              <Link to="/cart" className="flex-1">
-                <Button variant="gold" size="xl" className="w-full">
-                  Buy Now
-                </Button>
-              </Link>
             </div>
 
             {/* Trust */}
             <div className="mt-6 flex items-center gap-2 text-sm text-muted-foreground">
               <Shield className="w-4 h-4" />
-              <span>Secure checkout powered by Razorpay</span>
+              <span>Secure checkout • Instant download after payment</span>
             </div>
           </motion.div>
         </div>
@@ -207,6 +206,18 @@ const ProductDetail = () => {
       </main>
 
       <Footer />
+
+      {/* Payment Modal */}
+      <PaymentModal
+        isOpen={isPaymentModalOpen}
+        onClose={() => setIsPaymentModalOpen(false)}
+        product={{
+          id: product.id,
+          title: product.title,
+          price: product.price,
+          imageUrl: product.imageUrl,
+        }}
+      />
     </div>
   );
 };

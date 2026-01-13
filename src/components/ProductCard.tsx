@@ -1,10 +1,9 @@
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { Heart, ShoppingBag } from 'lucide-react';
+import { Heart, ArrowRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Product } from '@/types/product';
-import { useCart } from '@/contexts/CartContext';
 
 interface ProductCardProps {
   product: Product;
@@ -12,9 +11,6 @@ interface ProductCardProps {
 }
 
 export const ProductCard = ({ product, index = 0 }: ProductCardProps) => {
-  const { addToCart, isInCart } = useCart();
-  const inCart = isInCart(product.id);
-  
   const discount = product.originalPrice 
     ? Math.round((1 - product.price / product.originalPrice) * 100) 
     : 0;
@@ -72,8 +68,7 @@ export const ProductCard = ({ product, index = 0 }: ProductCardProps) => {
             {product.shortDescription}
           </p>
 
-
-          {/* Price & Add to Cart */}
+          {/* Price & View Details */}
           <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
             <div className="flex items-baseline gap-2">
               <span className="text-xl font-display font-bold text-primary">
@@ -86,18 +81,12 @@ export const ProductCard = ({ product, index = 0 }: ProductCardProps) => {
               )}
             </div>
             
-            <Button
-              size="sm"
-              variant={inCart ? "secondary" : "romantic"}
-              onClick={(e) => {
-                e.preventDefault();
-                addToCart(product);
-              }}
-              disabled={inCart}
-            >
-              <ShoppingBag className="w-4 h-4" />
-              {inCart ? 'In Cart' : 'Add'}
-            </Button>
+            <Link to={`/product/${product.slug}`}>
+              <Button size="sm" variant="romantic">
+                View
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+            </Link>
           </div>
         </CardContent>
       </Card>

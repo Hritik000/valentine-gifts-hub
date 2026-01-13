@@ -71,6 +71,7 @@ export type Database = {
           price: number
           rating: number
           reviews: number
+          sample_images: Json | null
           short_description: string
           slug: string
           title: string
@@ -91,6 +92,7 @@ export type Database = {
           price: number
           rating?: number
           reviews?: number
+          sample_images?: Json | null
           short_description: string
           slug: string
           title: string
@@ -111,6 +113,7 @@ export type Database = {
           price?: number
           rating?: number
           reviews?: number
+          sample_images?: Json | null
           short_description?: string
           slug?: string
           title?: string

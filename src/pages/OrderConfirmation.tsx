@@ -1,94 +1,120 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { CheckCircle, Download, Loader2, Package, ArrowRight } from 'lucide-react';
+import { CheckCircle, Download, Loader2, Package, ArrowRight, Heart } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { supabase } from '@/integrations/supabase/client';
-import { useDownloadProduct } from '@/hooks/useDownloadProduct';
+import { toast } from 'sonner';
 
-interface OrderItem {
+interface Product {
   id: string;
   title: string;
   price: number;
-  imageUrl: string;
-  hasFile?: boolean;
-}
-
-interface Order {
-  id: string;
-  status: string;
-  total: number;
-  items: OrderItem[];
-  customer_email: string;
-  created_at: string;
+  image_url: string;
+  file_url: string | null;
 }
 
 const OrderConfirmation = () => {
   const [searchParams] = useSearchParams();
+  const productId = searchParams.get('productId');
+  const status = searchParams.get('status');
   const orderId = searchParams.get('orderId');
-  const [order, setOrder] = useState<Order | null>(null);
+  
+  const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const { downloadProduct, isDownloading } = useDownloadProduct();
-  const [downloadingProductId, setDownloadingProductId] = useState<string | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   useEffect(() => {
-    const fetchOrder = async () => {
-      if (!orderId) {
-        setError('Order ID not found');
-        setLoading(false);
+    const fetchProduct = async () => {
+      // Handle direct product purchase (new flow)
+      if (productId) {
+        try {
+          const { data, error } = await supabase
+            .from('products')
+            .select('id, title, price, image_url, file_url')
+            .eq('id', productId)
+            .maybeSingle();
+
+          if (error) throw error;
+          setProduct(data);
+        } catch (err) {
+          console.error('Error fetching product:', err);
+        } finally {
+          setLoading(false);
+        }
         return;
       }
 
-      try {
-        // Fetch order details
-        const { data: orderData, error: orderError } = await supabase
-          .from('orders')
-          .select('*')
-          .eq('id', orderId)
-          .single();
+      // Handle legacy order-based flow
+      if (orderId) {
+        try {
+          const { data: orderData, error: orderError } = await supabase
+            .from('orders')
+            .select('items')
+            .eq('id', orderId)
+            .maybeSingle();
 
-        if (orderError) throw orderError;
+          if (orderError || !orderData) throw orderError;
 
-        // Check which products have downloadable files
-        const productIds = (orderData.items as unknown as OrderItem[]).map(item => item.id);
-        const { data: products } = await supabase
-          .from('products')
-          .select('id, file_url')
-          .in('id', productIds);
+          // Get first product from order
+          const items = orderData.items as unknown as Array<{ id: string }>;
+          if (items && items.length > 0) {
+            const { data: productData } = await supabase
+              .from('products')
+              .select('id, title, price, image_url, file_url')
+              .eq('id', items[0].id)
+              .maybeSingle();
 
-        const productsWithFiles = new Set(
-          products?.filter(p => p.file_url).map(p => p.id) || []
-        );
-
-        const itemsWithFileInfo = (orderData.items as unknown as OrderItem[]).map(item => ({
-          ...item,
-          hasFile: productsWithFiles.has(item.id)
-        }));
-
-        setOrder({
-          ...orderData,
-          items: itemsWithFileInfo
-        } as Order);
-      } catch (err) {
-        console.error('Error fetching order:', err);
-        setError('Failed to load order details');
-      } finally {
-        setLoading(false);
+            setProduct(productData);
+          }
+        } catch (err) {
+          console.error('Error fetching order:', err);
+        } finally {
+          setLoading(false);
+        }
+        return;
       }
+
+      setLoading(false);
     };
 
-    fetchOrder();
-  }, [orderId]);
+    fetchProduct();
+  }, [productId, orderId]);
 
-  const handleDownload = async (productId: string) => {
-    if (!orderId) return;
-    setDownloadingProductId(productId);
-    await downloadProduct(productId, orderId);
-    setDownloadingProductId(null);
+  const handleDownload = async () => {
+    if (!product?.file_url) {
+      toast.error('Download not available', {
+        description: 'This product does not have a downloadable file.',
+      });
+      return;
+    }
+
+    setIsDownloading(true);
+    
+    try {
+      // Direct download from the file URL
+      const link = document.createElement('a');
+      link.href = product.file_url;
+      link.target = '_blank';
+      link.download = '';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast.success('Download started!', {
+        description: 'Your file is being downloaded.',
+      });
+    } catch (error) {
+      console.error('Download error:', error);
+      toast.error('Download failed', {
+        description: 'Please try again or contact support.',
+      });
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   if (loading) {
@@ -105,18 +131,19 @@ const OrderConfirmation = () => {
     );
   }
 
-  if (error || !order) {
+  // No product found
+  if (!product && !productId && !orderId) {
     return (
       <div className="min-h-screen">
         <Navbar />
         <main className="container mx-auto px-4 py-20">
           <div className="text-center max-w-md mx-auto">
             <Package className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-            <h1 className="font-display text-2xl font-bold mb-2">Order Not Found</h1>
-            <p className="text-muted-foreground mb-6">{error || 'We could not find your order.'}</p>
+            <h1 className="font-display text-2xl font-bold mb-2">No Order Found</h1>
+            <p className="text-muted-foreground mb-6">We couldn't find your order details.</p>
             <Link to="/products">
               <Button variant="romantic">
-                Continue Shopping
+                Browse Products
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </Link>
@@ -127,7 +154,7 @@ const OrderConfirmation = () => {
     );
   }
 
-  const isCompleted = order.status === 'completed';
+  const isSuccess = status === 'success';
 
   return (
     <div className="min-h-screen">
@@ -143,87 +170,73 @@ const OrderConfirmation = () => {
             <CheckCircle className="w-10 h-10 text-green-600" />
           </div>
           <h1 className="font-display text-3xl sm:text-4xl font-bold mb-4">
-            {isCompleted ? 'Thank You for Your Purchase!' : 'Order Received'}
+            Thank You for Your Purchase!
           </h1>
           <p className="text-muted-foreground">
-            {isCompleted 
-              ? 'Your order is complete. Download your products below.'
-              : 'Your order is being processed. Downloads will be available once payment is confirmed.'}
-          </p>
-          <p className="text-sm text-muted-foreground mt-2">
-            Order ID: <span className="font-mono">{order.id.slice(0, 8)}</span>
+            Your payment was successful. Download your product below.
           </p>
         </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-        >
-          <Card variant="elevated" className="max-w-2xl mx-auto">
-            <CardContent className="p-6">
-              <h2 className="font-display text-xl font-semibold mb-6">Your Products</h2>
-              
-              <div className="space-y-4">
-                {order.items.map((item, index) => (
-                  <motion.div
-                    key={item.id}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.1 * (index + 1) }}
-                    className="flex items-center gap-4 p-4 bg-muted/30 rounded-lg"
-                  >
-                    <img
-                      src={item.imageUrl}
-                      alt={item.title}
-                      className="w-16 h-16 rounded-lg object-cover"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-medium truncate">{item.title}</h3>
-                      <p className="text-sm text-muted-foreground">₹{item.price}</p>
-                    </div>
-                    {item.hasFile && isCompleted && (
-                      <Button
-                        variant="romantic"
-                        size="sm"
-                        onClick={() => handleDownload(item.id)}
-                        disabled={isDownloading && downloadingProductId === item.id}
-                      >
-                        {isDownloading && downloadingProductId === item.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <>
-                            <Download className="w-4 h-4 mr-2" />
-                            Download
-                          </>
-                        )}
-                      </Button>
-                    )}
-                    {!item.hasFile && isCompleted && (
-                      <span className="text-xs text-muted-foreground">No file attached</span>
-                    )}
-                    {!isCompleted && (
-                      <span className="text-xs text-amber-600">Pending</span>
-                    )}
-                  </motion.div>
-                ))}
-              </div>
-
-              <div className="border-t border-border mt-6 pt-6">
-                <div className="flex justify-between items-center">
-                  <span className="font-medium">Total Paid</span>
-                  <span className="text-xl font-bold text-primary">₹{order.total}</span>
+        {product && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+          >
+            <Card variant="elevated" className="max-w-2xl mx-auto">
+              <CardContent className="p-6">
+                <h2 className="font-display text-xl font-semibold mb-6">Your Product</h2>
+                
+                <div className="flex items-center gap-4 p-4 bg-muted/30 rounded-lg">
+                  <img
+                    src={product.image_url}
+                    alt={product.title}
+                    className="w-20 h-20 rounded-lg object-cover"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-medium text-lg">{product.title}</h3>
+                    <p className="text-primary font-bold">₹{product.price}</p>
+                  </div>
                 </div>
-              </div>
 
-              <div className="mt-6 p-4 bg-blush rounded-lg">
-                <p className="text-sm text-center">
-                  📧 A confirmation email has been sent to <strong>{order.customer_email}</strong>
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
+                {/* Download Button */}
+                {product.file_url && (
+                  <div className="mt-6">
+                    <Button
+                      variant="romantic"
+                      size="lg"
+                      className="w-full"
+                      onClick={handleDownload}
+                      disabled={isDownloading}
+                    >
+                      {isDownloading ? (
+                        <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                      ) : (
+                        <Download className="w-5 h-5 mr-2" />
+                      )}
+                      Download Your File
+                    </Button>
+                  </div>
+                )}
+
+                {!product.file_url && (
+                  <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg text-center">
+                    <p className="text-sm text-amber-700">
+                      The download file for this product is being prepared. Please check back soon.
+                    </p>
+                  </div>
+                )}
+
+                <div className="mt-6 p-4 bg-blush rounded-lg text-center">
+                  <p className="text-sm flex items-center justify-center gap-2">
+                    <Heart className="w-4 h-4 text-primary fill-primary" />
+                    Thank you for supporting LoveStore!
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
 
         <motion.div
           initial={{ opacity: 0 }}
