@@ -20,6 +20,8 @@ export const transformProduct = (product: DatabaseProduct) => ({
   valentineSpecial: product.valentine_special,
   rating: Number(product.rating),
   reviews: product.reviews,
+  fileUrl: product.file_url ?? undefined,
+  sampleImages: (product.sample_images as string[] | null) ?? [],
 });
 
 export type TransformedProduct = ReturnType<typeof transformProduct>;
