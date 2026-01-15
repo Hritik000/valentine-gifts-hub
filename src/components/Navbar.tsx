@@ -1,13 +1,22 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, ShoppingBag, Menu, X } from 'lucide-react';
+import { Heart, ShoppingBag, Menu, X, User, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCart } from '@/contexts/CartContext';
+import { useAuth } from '@/hooks/useAuth';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 export const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
   const { getItemCount } = useCart();
+  const { user, signOut, isAdmin } = useAuth();
   const location = useLocation();
   const itemCount = getItemCount();
 
@@ -79,6 +88,34 @@ export const Navbar = () => {
               </Button>
             </Link>
 
+            {/* Auth */}
+            {user ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon">
+                    <User className="w-5 h-5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <div className="px-2 py-1.5 text-sm">
+                    <p className="font-medium">{user.email}</p>
+                    {isAdmin && <p className="text-xs text-primary">Admin</p>}
+                  </div>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => signOut()}>
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Sign Out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Link to="/auth">
+                <Button variant="outline" size="sm">
+                  Sign In
+                </Button>
+              </Link>
+            )}
+
             <button
               className="md:hidden p-2"
               onClick={() => setIsOpen(!isOpen)}
@@ -112,6 +149,15 @@ export const Navbar = () => {
                     {link.label}
                   </Link>
                 ))}
+                {!user && (
+                  <Link
+                    to="/auth"
+                    onClick={() => setIsOpen(false)}
+                    className="block py-2 px-4 rounded-lg hover:bg-secondary"
+                  >
+                    Sign In
+                  </Link>
+                )}
               </div>
             </motion.div>
           )}
