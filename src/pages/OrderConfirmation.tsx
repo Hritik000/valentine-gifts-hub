@@ -8,13 +8,14 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { useDownloadProduct } from '@/hooks/useDownloadProduct';
 
 interface Product {
   id: string;
   title: string;
   price: number;
   image_url: string;
-  file_url: string | null;
+  has_file: boolean;
 }
 
 const OrderConfirmation = () => {
@@ -25,13 +26,15 @@ const OrderConfirmation = () => {
   
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isDownloading, setIsDownloading] = useState(false);
+  const { downloadProduct, isDownloading } = useDownloadProduct();
 
   useEffect(() => {
     const fetchProduct = async () => {
       // Handle direct product purchase (new flow)
       if (productId) {
         try {
+          // Note: We don't fetch file_url - only check if product exists
+          // The actual download happens via secure Edge Function
           const { data, error } = await supabase
             .from('products')
             .select('id, title, price, image_url, file_url')
@@ -39,7 +42,15 @@ const OrderConfirmation = () => {
             .maybeSingle();
 
           if (error) throw error;
-          setProduct(data);
+          if (data) {
+            setProduct({
+              id: data.id,
+              title: data.title,
+              price: data.price,
+              image_url: data.image_url,
+              has_file: !!data.file_url, // Only store boolean, not the actual URL
+            });
+          }
         } catch (err) {
           console.error('Error fetching product:', err);
         } finally {
@@ -68,7 +79,15 @@ const OrderConfirmation = () => {
               .eq('id', items[0].id)
               .maybeSingle();
 
-            setProduct(productData);
+            if (productData) {
+              setProduct({
+                id: productData.id,
+                title: productData.title,
+                price: productData.price,
+                image_url: productData.image_url,
+                has_file: !!productData.file_url,
+              });
+            }
           }
         } catch (err) {
           console.error('Error fetching order:', err);
@@ -85,36 +104,23 @@ const OrderConfirmation = () => {
   }, [productId, orderId]);
 
   const handleDownload = async () => {
-    if (!product?.file_url) {
+    // SECURITY: Downloads require a valid orderId to verify purchase
+    if (!orderId) {
       toast.error('Download not available', {
-        description: 'This product does not have a downloadable file.',
+        description: 'Order verification required for downloads.',
       });
       return;
     }
 
-    setIsDownloading(true);
-    
-    try {
-      // Direct download from the file URL
-      const link = document.createElement('a');
-      link.href = product.file_url;
-      link.target = '_blank';
-      link.download = '';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      toast.success('Download started!', {
-        description: 'Your file is being downloaded.',
+    if (!product?.id) {
+      toast.error('Download not available', {
+        description: 'Product information is missing.',
       });
-    } catch (error) {
-      console.error('Download error:', error);
-      toast.error('Download failed', {
-        description: 'Please try again or contact support.',
-      });
-    } finally {
-      setIsDownloading(false);
+      return;
     }
+
+    // Use secure Edge Function that verifies purchase before generating signed URL
+    await downloadProduct(product.id, orderId);
   };
 
   if (loading) {
@@ -199,8 +205,8 @@ const OrderConfirmation = () => {
                   </div>
                 </div>
 
-                {/* Download Button */}
-                {product.file_url && (
+                {/* Download Button - Only show if orderId exists (verified purchase) */}
+                {orderId && product.has_file && (
                   <div className="mt-6">
                     <Button
                       variant="romantic"
@@ -219,10 +225,18 @@ const OrderConfirmation = () => {
                   </div>
                 )}
 
-                {!product.file_url && (
+                {orderId && !product.has_file && (
                   <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg text-center">
                     <p className="text-sm text-amber-700">
                       The download file for this product is being prepared. Please check back soon.
+                    </p>
+                  </div>
+                )}
+
+                {!orderId && (
+                  <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg text-center">
+                    <p className="text-sm text-amber-700">
+                      Order verification required for downloads. Please check your email for the download link.
                     </p>
                   </div>
                 )}

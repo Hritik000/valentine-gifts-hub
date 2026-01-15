@@ -5,6 +5,7 @@ import { Tables } from '@/integrations/supabase/types';
 export type DatabaseProduct = Tables<'products'>;
 
 // Transform database product to frontend format
+// SECURITY: file_url is intentionally excluded - downloads are handled via secure Edge Function
 export const transformProduct = (product: DatabaseProduct) => ({
   id: product.id,
   title: product.title,
@@ -20,7 +21,7 @@ export const transformProduct = (product: DatabaseProduct) => ({
   valentineSpecial: product.valentine_special,
   rating: Number(product.rating),
   reviews: product.reviews,
-  fileUrl: product.file_url ?? undefined,
+  hasFile: !!product.file_url, // Only expose boolean, not the actual URL
   sampleImages: (product.sample_images as string[] | null) ?? [],
 });
 
