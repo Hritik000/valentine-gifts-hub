@@ -46,22 +46,28 @@ Deno.serve(async (req) => {
     // Verify the order exists and contains this product
     // For guest orders, we verify by order ID only
     // For authenticated users, we also verify user_id
-    let orderQuery = supabaseAdmin
+    // Check for 'paid' or 'completed' status (supports multiple payment status conventions)
+    const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
       .select('*')
       .eq('id', orderId)
-      .eq('status', 'completed')
-
-    if (user) {
-      orderQuery = orderQuery.eq('user_id', user.id)
-    }
-
-    const { data: order, error: orderError } = await orderQuery.single()
+      .in('status', ['paid', 'completed', 'delivered'])
+      .single()
 
     if (orderError || !order) {
       console.error('Order verification failed:', orderError)
       return new Response(
-        JSON.stringify({ error: 'Order not found or not completed' }),
+        JSON.stringify({ error: 'Order not found or payment not verified' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // For authenticated users, verify they own the order
+    // For guest orders (user_id is null), allow access with order ID only
+    if (user && order.user_id && order.user_id !== user.id) {
+      console.error('User does not own this order')
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized access to this order' }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
