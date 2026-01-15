@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { CheckCircle, Download, Loader2, Package, ArrowRight, Heart } from 'lucide-react';
+import { CheckCircle, Download, Loader2, Package, ArrowRight, Heart, AlertTriangle } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/button';
@@ -10,101 +10,72 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useDownloadProduct } from '@/hooks/useDownloadProduct';
 
-interface Product {
+interface OrderProduct {
   id: string;
   title: string;
   price: number;
   image_url: string;
-  has_file: boolean;
+}
+
+interface OrderInfo {
+  id: string;
+  status: string;
+  total: number;
+  items: OrderProduct[];
+  hasFiles: boolean;
 }
 
 const OrderConfirmation = () => {
   const [searchParams] = useSearchParams();
-  const productId = searchParams.get('productId');
-  const status = searchParams.get('status');
   const orderId = searchParams.get('orderId');
   
-  const [product, setProduct] = useState<Product | null>(null);
+  const [orderInfo, setOrderInfo] = useState<OrderInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  const [verificationError, setVerificationError] = useState<string | null>(null);
   const { downloadProduct, isDownloading } = useDownloadProduct();
 
   useEffect(() => {
-    const fetchProduct = async () => {
-      // Handle direct product purchase (new flow)
-      if (productId) {
-        try {
-          // Note: We don't fetch file_url - only check if product exists
-          // The actual download happens via secure Edge Function
-          const { data, error } = await supabase
-            .from('products')
-            .select('id, title, price, image_url, file_url')
-            .eq('id', productId)
-            .maybeSingle();
-
-          if (error) throw error;
-          if (data) {
-            setProduct({
-              id: data.id,
-              title: data.title,
-              price: data.price,
-              image_url: data.image_url,
-              has_file: !!data.file_url, // Only store boolean, not the actual URL
-            });
-          }
-        } catch (err) {
-          console.error('Error fetching product:', err);
-        } finally {
-          setLoading(false);
-        }
+    const verifyOrder = async () => {
+      // SECURITY: Order confirmation requires a valid orderId
+      if (!orderId) {
+        setVerificationError('No order ID provided. Please complete a purchase to access this page.');
+        setLoading(false);
         return;
       }
 
-      // Handle legacy order-based flow
-      if (orderId) {
-        try {
-          const { data: orderData, error: orderError } = await supabase
-            .from('orders')
-            .select('items')
-            .eq('id', orderId)
-            .maybeSingle();
+      try {
+        // Verify order via Edge Function (server-side verification)
+        const { data, error } = await supabase.functions.invoke('verify-order', {
+          body: { orderId }
+        });
 
-          if (orderError || !orderData) throw orderError;
-
-          // Get first product from order
-          const items = orderData.items as unknown as Array<{ id: string }>;
-          if (items && items.length > 0) {
-            const { data: productData } = await supabase
-              .from('products')
-              .select('id, title, price, image_url, file_url')
-              .eq('id', items[0].id)
-              .maybeSingle();
-
-            if (productData) {
-              setProduct({
-                id: productData.id,
-                title: productData.title,
-                price: productData.price,
-                image_url: productData.image_url,
-                has_file: !!productData.file_url,
-              });
-            }
-          }
-        } catch (err) {
-          console.error('Error fetching order:', err);
-        } finally {
+        if (error) {
+          console.error('Order verification error:', error);
+          setVerificationError('Unable to verify order. Please try again.');
           setLoading(false);
+          return;
         }
-        return;
-      }
 
-      setLoading(false);
+        if (!data?.valid) {
+          setVerificationError(data?.error || 'Order not found or payment not verified.');
+          setLoading(false);
+          return;
+        }
+
+        // Order verified successfully
+        setOrderInfo(data.order);
+      } catch (err) {
+        console.error('Error verifying order:', err);
+        setVerificationError('An error occurred while verifying your order.');
+      } finally {
+        setLoading(false);
+      }
     };
 
-    fetchProduct();
-  }, [productId, orderId]);
+    verifyOrder();
+  }, [orderId]);
 
-  const handleDownload = async () => {
-    // SECURITY: Downloads require a valid orderId to verify purchase
+  const handleDownload = async (productId: string) => {
     if (!orderId) {
       toast.error('Download not available', {
         description: 'Order verification required for downloads.',
@@ -112,15 +83,8 @@ const OrderConfirmation = () => {
       return;
     }
 
-    if (!product?.id) {
-      toast.error('Download not available', {
-        description: 'Product information is missing.',
-      });
-      return;
-    }
-
     // Use secure Edge Function that verifies purchase before generating signed URL
-    await downloadProduct(product.id, orderId);
+    await downloadProduct(productId, orderId);
   };
 
   if (loading) {
@@ -128,8 +92,9 @@ const OrderConfirmation = () => {
       <div className="min-h-screen">
         <Navbar />
         <main className="container mx-auto px-4 py-20">
-          <div className="flex items-center justify-center">
+          <div className="flex flex-col items-center justify-center gap-4">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <p className="text-muted-foreground">Verifying your order...</p>
           </div>
         </main>
         <Footer />
@@ -137,8 +102,33 @@ const OrderConfirmation = () => {
     );
   }
 
-  // No product found
-  if (!product && !productId && !orderId) {
+  // Show error if order verification failed
+  if (verificationError) {
+    return (
+      <div className="min-h-screen">
+        <Navbar />
+        <main className="container mx-auto px-4 py-20">
+          <div className="text-center max-w-md mx-auto">
+            <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle className="w-8 h-8 text-amber-600" />
+            </div>
+            <h1 className="font-display text-2xl font-bold mb-2">Order Verification Failed</h1>
+            <p className="text-muted-foreground mb-6">{verificationError}</p>
+            <Link to="/products">
+              <Button variant="romantic">
+                Browse Products
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </Link>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
+  // No order info (shouldn't happen if verification passed)
+  if (!orderInfo) {
     return (
       <div className="min-h-screen">
         <Navbar />
@@ -160,8 +150,6 @@ const OrderConfirmation = () => {
     );
   }
 
-  const isSuccess = status === 'success';
-
   return (
     <div className="min-h-screen">
       <Navbar />
@@ -179,78 +167,59 @@ const OrderConfirmation = () => {
             Thank You for Your Purchase!
           </h1>
           <p className="text-muted-foreground">
-            Your payment was successful. Download your product below.
+            Your payment has been verified. Download your products below.
           </p>
         </motion.div>
 
-        {product && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-          >
-            <Card variant="elevated" className="max-w-2xl mx-auto">
-              <CardContent className="p-6">
-                <h2 className="font-display text-xl font-semibold mb-6">Your Product</h2>
-                
-                <div className="flex items-center gap-4 p-4 bg-muted/30 rounded-lg">
-                  <img
-                    src={product.image_url}
-                    alt={product.title}
-                    className="w-20 h-20 rounded-lg object-cover"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-medium text-lg">{product.title}</h3>
-                    <p className="text-primary font-bold">₹{product.price}</p>
-                  </div>
-                </div>
-
-                {/* Download Button - Only show if orderId exists (verified purchase) */}
-                {orderId && product.has_file && (
-                  <div className="mt-6">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+        >
+          <Card variant="elevated" className="max-w-2xl mx-auto">
+            <CardContent className="p-6">
+              <h2 className="font-display text-xl font-semibold mb-6">Your Products</h2>
+              
+              <div className="space-y-4">
+                {orderInfo.items.map((product) => (
+                  <div key={product.id} className="flex items-center gap-4 p-4 bg-muted/30 rounded-lg">
+                    <img
+                      src={product.image_url}
+                      alt={product.title}
+                      className="w-20 h-20 rounded-lg object-cover"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-medium text-lg">{product.title}</h3>
+                      <p className="text-primary font-bold">₹{product.price}</p>
+                    </div>
                     <Button
                       variant="romantic"
-                      size="lg"
-                      className="w-full"
-                      onClick={handleDownload}
+                      size="sm"
+                      onClick={() => handleDownload(product.id)}
                       disabled={isDownloading}
                     >
                       {isDownloading ? (
-                        <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                        <Loader2 className="w-4 h-4 animate-spin" />
                       ) : (
-                        <Download className="w-5 h-5 mr-2" />
+                        <>
+                          <Download className="w-4 h-4 mr-2" />
+                          Download
+                        </>
                       )}
-                      Download Your File
                     </Button>
                   </div>
-                )}
+                ))}
+              </div>
 
-                {orderId && !product.has_file && (
-                  <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg text-center">
-                    <p className="text-sm text-amber-700">
-                      The download file for this product is being prepared. Please check back soon.
-                    </p>
-                  </div>
-                )}
-
-                {!orderId && (
-                  <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg text-center">
-                    <p className="text-sm text-amber-700">
-                      Order verification required for downloads. Please check your email for the download link.
-                    </p>
-                  </div>
-                )}
-
-                <div className="mt-6 p-4 bg-blush rounded-lg text-center">
-                  <p className="text-sm flex items-center justify-center gap-2">
-                    <Heart className="w-4 h-4 text-primary fill-primary" />
-                    Thank you for supporting LoveStore!
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
+              <div className="mt-6 p-4 bg-blush rounded-lg text-center">
+                <p className="text-sm flex items-center justify-center gap-2">
+                  <Heart className="w-4 h-4 text-primary fill-primary" />
+                  Thank you for supporting LoveStore!
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
 
         <motion.div
           initial={{ opacity: 0 }}

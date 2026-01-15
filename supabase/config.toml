@@ -2,3 +2,9 @@ project_id = "qmnhbtmnarhnvbmpskuu"
 
 [functions.download-product]
 verify_jwt = false
+
+[functions.create-order]
+verify_jwt = false
+
+[functions.verify-order]
+verify_jwt = false

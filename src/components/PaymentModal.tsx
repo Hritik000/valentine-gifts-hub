@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, CreditCard, Smartphone, Loader2, Shield } from 'lucide-react';
+import { X, CreditCard, Smartphone, Loader2, Shield, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 
 interface PaymentModalProps {
   isOpen: boolean;
@@ -19,51 +22,97 @@ interface PaymentModalProps {
 export const PaymentModal = ({ isOpen, onClose, product }: PaymentModalProps) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedMethod, setSelectedMethod] = useState<'razorpay' | 'stripe' | null>(null);
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [emailError, setEmailError] = useState('');
+
+  const validateEmail = (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  const createOrder = async (paymentMethod: string, paymentId?: string): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase.functions.invoke('create-order', {
+        body: {
+          productId: product.id,
+          customerEmail: customerEmail.trim(),
+          customerName: customerName.trim() || null,
+          paymentMethod,
+          paymentId,
+        }
+      });
+
+      if (error) {
+        console.error('Order creation error:', error);
+        throw new Error(error.message || 'Failed to create order');
+      }
+
+      if (!data?.orderId) {
+        throw new Error('No order ID received');
+      }
+
+      return data.orderId;
+    } catch (error) {
+      console.error('Error creating order:', error);
+      throw error;
+    }
+  };
 
   const handlePayment = async (method: 'razorpay' | 'stripe') => {
+    // Validate email before proceeding
+    if (!customerEmail.trim()) {
+      setEmailError('Email is required');
+      return;
+    }
+
+    if (!validateEmail(customerEmail.trim())) {
+      setEmailError('Please enter a valid email address');
+      return;
+    }
+
+    setEmailError('');
     setSelectedMethod(method);
     setIsProcessing(true);
 
     try {
-      // For now, simulate payment processing
-      // In production, this would integrate with actual payment gateways
-      
       if (method === 'razorpay') {
-        // Razorpay integration placeholder
-        // The actual Razorpay key would come from environment variables
         const razorpayKey = import.meta.env.VITE_RAZORPAY_KEY_ID;
         
         if (!razorpayKey) {
           toast.info('Razorpay integration pending', {
-            description: 'Payment gateway will be configured soon.',
+            description: 'Processing with demo payment...',
           });
-          // Simulate successful payment for demo
-          await simulatePaymentSuccess(product.id);
+          // Create order server-side for demo
+          const orderId = await createOrder('demo');
+          if (orderId) {
+            window.location.href = `/order-confirmation?orderId=${orderId}`;
+          }
           return;
         }
 
-        // Actual Razorpay integration would go here
         await initiateRazorpayPayment(product, razorpayKey);
       } else {
-        // Stripe integration placeholder
         const stripeKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
         
         if (!stripeKey) {
           toast.info('Stripe integration pending', {
-            description: 'Payment gateway will be configured soon.',
+            description: 'Processing with demo payment...',
           });
-          // Simulate successful payment for demo
-          await simulatePaymentSuccess(product.id);
+          // Create order server-side for demo
+          const orderId = await createOrder('demo');
+          if (orderId) {
+            window.location.href = `/order-confirmation?orderId=${orderId}`;
+          }
           return;
         }
 
-        // Actual Stripe integration would go here
         await initiateStripePayment(product);
       }
     } catch (error) {
       console.error('Payment error:', error);
       toast.error('Payment failed', {
-        description: 'Please try again or use a different payment method.',
+        description: error instanceof Error ? error.message : 'Please try again or use a different payment method.',
       });
     } finally {
       setIsProcessing(false);
@@ -71,31 +120,31 @@ export const PaymentModal = ({ isOpen, onClose, product }: PaymentModalProps) =>
     }
   };
 
-  const simulatePaymentSuccess = async (productId: string) => {
-    // Simulate processing delay
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    // Redirect to order confirmation with product info
-    const params = new URLSearchParams({
-      productId,
-      status: 'success',
-    });
-    window.location.href = `/order-confirmation?${params.toString()}`;
-  };
-
   const initiateRazorpayPayment = async (product: { id: string; title: string; price: number }, key: string) => {
-    // This would use the Razorpay SDK
-    // For now, we'll show a placeholder
     const options = {
       key,
       amount: product.price * 100, // Razorpay expects amount in paise
       currency: 'INR',
       name: 'LoveStore',
       description: product.title,
-      handler: function () {
-        window.location.href = `/order-confirmation?productId=${product.id}&status=success`;
+      prefill: {
+        email: customerEmail,
+        name: customerName,
       },
-      prefill: {},
+      handler: async function (response: { razorpay_payment_id: string }) {
+        try {
+          // Create order server-side with payment ID
+          const orderId = await createOrder('razorpay', response.razorpay_payment_id);
+          if (orderId) {
+            window.location.href = `/order-confirmation?orderId=${orderId}`;
+          }
+        } catch (error) {
+          console.error('Error creating order after payment:', error);
+          toast.error('Order creation failed', {
+            description: 'Payment received but order creation failed. Please contact support.',
+          });
+        }
+      },
       theme: {
         color: '#E11D48',
       },
@@ -107,15 +156,21 @@ export const PaymentModal = ({ isOpen, onClose, product }: PaymentModalProps) =>
       const rzp = new window.Razorpay(options);
       rzp.open();
     } else {
-      // Fallback for demo
-      await simulatePaymentSuccess(product.id);
+      // Fallback for demo - create order server-side
+      const orderId = await createOrder('demo');
+      if (orderId) {
+        window.location.href = `/order-confirmation?orderId=${orderId}`;
+      }
     }
   };
 
   const initiateStripePayment = async (product: { id: string; title: string; price: number }) => {
-    // This would redirect to Stripe Checkout
-    // For now, simulate success
-    await simulatePaymentSuccess(product.id);
+    // For now, create order with demo payment
+    // In production, this would redirect to Stripe Checkout
+    const orderId = await createOrder('demo');
+    if (orderId) {
+      window.location.href = `/order-confirmation?orderId=${orderId}`;
+    }
   };
 
   return (
@@ -136,6 +191,46 @@ export const PaymentModal = ({ isOpen, onClose, product }: PaymentModalProps) =>
             <div className="flex-1">
               <h3 className="font-medium">{product.title}</h3>
               <p className="text-xl font-bold text-primary">₹{product.price}</p>
+            </div>
+          </div>
+
+          {/* Customer Info */}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email" className="flex items-center gap-2">
+                <Mail className="w-4 h-4" />
+                Email Address *
+              </Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="your@email.com"
+                value={customerEmail}
+                onChange={(e) => {
+                  setCustomerEmail(e.target.value);
+                  setEmailError('');
+                }}
+                className={emailError ? 'border-red-500' : ''}
+                disabled={isProcessing}
+              />
+              {emailError && (
+                <p className="text-sm text-red-500">{emailError}</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Download link will be sent to this email
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="name">Name (optional)</Label>
+              <Input
+                id="name"
+                type="text"
+                placeholder="Your name"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                disabled={isProcessing}
+              />
             </div>
           </div>
 
