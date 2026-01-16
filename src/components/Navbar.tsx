@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, ShoppingBag, Menu, X, User, LogOut } from 'lucide-react';
+import { Heart, ShoppingBag, Menu, X, User, LogOut, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCart } from '@/contexts/CartContext';
 import { useAuth } from '@/hooks/useAuth';
@@ -23,6 +23,7 @@ export const Navbar = () => {
   const navLinks = [
     { href: '/', label: 'Home' },
     { href: '/products', label: 'Products' },
+    ...(isAdmin ? [{ href: '/admin', label: 'Admin' }] : []),
   ];
 
   return (
@@ -102,6 +103,14 @@ export const Navbar = () => {
                     {isAdmin && <p className="text-xs text-primary">Admin</p>}
                   </div>
                   <DropdownMenuSeparator />
+                  {isAdmin && (
+                    <DropdownMenuItem asChild>
+                      <Link to="/admin">
+                        <Settings className="w-4 h-4 mr-2" />
+                        Admin Dashboard
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onClick={() => signOut()}>
                     <LogOut className="w-4 h-4 mr-2" />
                     Sign Out
