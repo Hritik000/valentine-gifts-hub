@@ -98,16 +98,46 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Generate a signed URL for the file (valid for 1 hour)
-    const { data: signedUrl, error: signedUrlError } = await supabaseAdmin
+    // Clean the file path - remove any leading slashes
+    const cleanFilePath = product.file_url.replace(/^\/+/, '')
+    
+    console.log(`Attempting to generate signed URL for file: ${cleanFilePath}`)
+    
+    // Try the primary bucket first (digital-products)
+    let signedUrl = null
+    let signedUrlError = null
+    
+    // Try digital-products bucket first
+    const { data: primaryUrl, error: primaryError } = await supabaseAdmin
       .storage
       .from('digital-products')
-      .createSignedUrl(product.file_url, 3600)
+      .createSignedUrl(cleanFilePath, 3600)
+    
+    if (!primaryError && primaryUrl) {
+      signedUrl = primaryUrl
+      console.log('Signed URL generated from digital-products bucket')
+    } else {
+      console.log('Primary bucket failed, trying yourdigitalproducts bucket:', primaryError?.message)
+      
+      // Fallback to yourdigitalproducts bucket
+      const { data: fallbackUrl, error: fallbackError } = await supabaseAdmin
+        .storage
+        .from('yourdigitalproducts')
+        .createSignedUrl(cleanFilePath, 3600)
+      
+      if (!fallbackError && fallbackUrl) {
+        signedUrl = fallbackUrl
+        console.log('Signed URL generated from yourdigitalproducts bucket')
+      } else {
+        signedUrlError = fallbackError || primaryError
+        console.error('Both buckets failed:', signedUrlError?.message)
+      }
+    }
 
-    if (signedUrlError) {
+    if (signedUrlError || !signedUrl) {
       console.error('Signed URL error:', signedUrlError)
       return new Response(
-        JSON.stringify({ error: 'Failed to generate download URL' }),
+        JSON.stringify({ error: 'Failed to generate download URL', details: signedUrlError?.message }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
