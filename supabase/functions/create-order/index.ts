@@ -5,6 +5,43 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+// In-memory rate limiting store
+// Note: In production with multiple instances, use Redis or database-backed rate limiting
+const rateLimitStore = new Map<string, { count: number; resetTime: number }>()
+
+// Rate limit configuration: max 5 orders per email per 10 minutes
+const RATE_LIMIT_MAX = 5
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000 // 10 minutes
+
+function checkRateLimit(key: string): { allowed: boolean; remaining: number; resetIn: number } {
+  const now = Date.now()
+  const entry = rateLimitStore.get(key)
+
+  // Clean up expired entries periodically
+  if (rateLimitStore.size > 1000) {
+    for (const [k, v] of rateLimitStore.entries()) {
+      if (v.resetTime < now) {
+        rateLimitStore.delete(k)
+      }
+    }
+  }
+
+  if (!entry || entry.resetTime < now) {
+    // New window
+    rateLimitStore.set(key, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS })
+    return { allowed: true, remaining: RATE_LIMIT_MAX - 1, resetIn: RATE_LIMIT_WINDOW_MS }
+  }
+
+  if (entry.count >= RATE_LIMIT_MAX) {
+    // Rate limit exceeded
+    return { allowed: false, remaining: 0, resetIn: entry.resetTime - now }
+  }
+
+  // Increment count
+  entry.count++
+  return { allowed: true, remaining: RATE_LIMIT_MAX - entry.count, resetIn: entry.resetTime - now }
+}
+
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -53,6 +90,28 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({ error: 'Invalid email format' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Rate limiting check - use normalized email as key
+    const rateLimitKey = customerEmail.toLowerCase().trim()
+    const rateLimit = checkRateLimit(rateLimitKey)
+    
+    if (!rateLimit.allowed) {
+      console.warn('Rate limit exceeded for:', rateLimitKey)
+      return new Response(
+        JSON.stringify({ 
+          error: 'Too many order attempts. Please try again later.',
+          retryAfter: Math.ceil(rateLimit.resetIn / 1000)
+        }),
+        { 
+          status: 429, 
+          headers: { 
+            ...corsHeaders, 
+            'Content-Type': 'application/json',
+            'Retry-After': String(Math.ceil(rateLimit.resetIn / 1000))
+          } 
+        }
       )
     }
 
