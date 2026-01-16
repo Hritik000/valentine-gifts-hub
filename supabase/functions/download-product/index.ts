@@ -101,7 +101,7 @@ Deno.serve(async (req) => {
     // Generate a signed URL for the file (valid for 1 hour)
     const { data: signedUrl, error: signedUrlError } = await supabaseAdmin
       .storage
-      .from('yourdigitalproducts')
+      .from('digital-products')
       .createSignedUrl(product.file_url, 3600)
 
     if (signedUrlError) {
