@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const supabaseAnonKey = Deno.env.get('SUPABASE_PUBLISHABLE_KEY')!
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!
 
     // Get auth token from request
     const authHeader = req.headers.get('Authorization')
@@ -64,13 +64,21 @@ Deno.serve(async (req) => {
     // Admin client for database operations
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
 
-    const { productId, customerEmail, customerName, paymentMethod, paymentId } = await req.json()
+    const { items, productId, customerEmail, customerName, paymentMethod, paymentId, total: providedTotal } = await req.json()
 
-    // Validate required fields
-    if (!productId) {
-      console.error('Missing productId')
+    // Support both single product (legacy) and multi-product cart checkout
+    let orderItems: Array<{ id: string; title: string; price: number; quantity?: number }> = []
+    
+    if (items && Array.isArray(items) && items.length > 0) {
+      // Multi-product cart checkout
+      orderItems = items
+    } else if (productId) {
+      // Legacy single product checkout - will be populated below
+      orderItems = [{ id: productId, title: '', price: 0 }]
+    } else {
+      console.error('Missing items or productId')
       return new Response(
-        JSON.stringify({ error: 'Product ID is required' }),
+        JSON.stringify({ error: 'Cart items or Product ID is required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
@@ -118,21 +126,61 @@ Deno.serve(async (req) => {
     // Get current user (optional - allows guest checkout)
     const { data: { user } } = await supabaseClient.auth.getUser()
 
-    // Verify product exists and get price
-    const { data: product, error: productError } = await supabaseAdmin
+    // Get product IDs to verify
+    const productIds = orderItems.map(item => item.id)
+
+    // Verify all products exist and are active
+    const { data: products, error: productsError } = await supabaseAdmin
       .from('products')
       .select('id, title, price, is_active')
-      .eq('id', productId)
+      .in('id', productIds)
       .eq('is_active', true)
-      .single()
 
-    if (productError || !product) {
-      console.error('Product not found:', productError)
+    if (productsError) {
+      console.error('Products fetch error:', productsError)
       return new Response(
-        JSON.stringify({ error: 'Product not found or not available' }),
+        JSON.stringify({ error: 'Failed to verify products' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    if (!products || products.length === 0) {
+      console.error('No valid products found')
+      return new Response(
+        JSON.stringify({ error: 'No valid products found' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
+
+    // Verify all requested products were found
+    const foundProductIds = new Set(products.map(p => p.id))
+    const missingProducts = productIds.filter(id => !foundProductIds.has(id))
+    
+    if (missingProducts.length > 0) {
+      console.error('Some products not found:', missingProducts)
+      return new Response(
+        JSON.stringify({ error: 'Some products are not available', missing: missingProducts }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Build verified order items with server-side prices (security: never trust client prices)
+    const verifiedItems = products.map(product => ({
+      id: product.id,
+      title: product.title,
+      price: product.price,
+      quantity: orderItems.find(i => i.id === product.id)?.quantity || 1
+    }))
+
+    // Calculate total from verified server-side prices
+    const calculatedTotal = verifiedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+
+    console.log('Creating order:', { 
+      itemCount: verifiedItems.length, 
+      customerEmail, 
+      userId: user?.id,
+      total: calculatedTotal 
+    })
 
     // Create order record with 'paid' status
     // In production, this would be called after actual payment verification
@@ -140,14 +188,12 @@ Deno.serve(async (req) => {
       user_id: user?.id || null,
       customer_email: customerEmail,
       customer_name: customerName || null,
-      items: [{ id: product.id, title: product.title, price: product.price }],
-      total: product.price,
+      items: verifiedItems,
+      total: calculatedTotal,
       status: 'paid',
       payment_method: paymentMethod || 'demo',
       payment_id: paymentId || `demo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     }
-
-    console.log('Creating order:', { productId, customerEmail, userId: user?.id })
 
     const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
@@ -168,7 +214,9 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         orderId: order.id,
-        message: 'Order created successfully'
+        message: 'Order created successfully',
+        itemCount: verifiedItems.length,
+        total: calculatedTotal
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
