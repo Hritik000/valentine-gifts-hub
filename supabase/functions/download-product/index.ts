@@ -14,7 +14,7 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const supabaseAnonKey = Deno.env.get('SUPABASE_PUBLISHABLE_KEY')!
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!
 
     // Get auth token from request
     const authHeader = req.headers.get('Authorization')
@@ -98,39 +98,77 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Clean the file path - remove any leading slashes
-    const cleanFilePath = product.file_url.replace(/^\/+/, '')
+    // Parse the file URL to extract bucket name and file path
+    // file_url can be:
+    // 1. Full URL: https://xxx.supabase.co/storage/v1/object/public/bucket-name/path/to/file.ext
+    // 2. Relative path: path/to/file.ext or /path/to/file.ext
     
-    console.log(`Attempting to generate signed URL for file: ${cleanFilePath}`)
+    let bucketName = ''
+    let filePath = ''
     
-    // Try the primary bucket first (digital-products)
+    const fullUrlMatch = product.file_url.match(/\/storage\/v1\/object\/(?:public|sign)\/([^\/]+)\/(.+)$/)
+    
+    if (fullUrlMatch) {
+      // Full URL - extract bucket and path
+      bucketName = fullUrlMatch[1]
+      filePath = fullUrlMatch[2]
+      console.log(`Parsed full URL - Bucket: ${bucketName}, Path: ${filePath}`)
+    } else {
+      // Assume it's a relative path and try both buckets
+      filePath = product.file_url.replace(/^\/+/, '')
+      console.log(`Relative path detected: ${filePath}`)
+    }
+    
+    // Clean up double slashes in file path
+    filePath = filePath.replace(/^\/+/, '').replace(/\/+/g, '/')
+    
+    console.log(`Attempting to generate signed URL for file: ${filePath}`)
+    
     let signedUrl = null
     let signedUrlError = null
     
-    // Try digital-products bucket first
-    const { data: primaryUrl, error: primaryError } = await supabaseAdmin
-      .storage
-      .from('digital-products')
-      .createSignedUrl(cleanFilePath, 3600)
-    
-    if (!primaryError && primaryUrl) {
-      signedUrl = primaryUrl
-      console.log('Signed URL generated from digital-products bucket')
-    } else {
-      console.log('Primary bucket failed, trying yourdigitalproducts bucket:', primaryError?.message)
-      
-      // Fallback to yourdigitalproducts bucket
-      const { data: fallbackUrl, error: fallbackError } = await supabaseAdmin
+    // If we know the bucket from URL, try that first
+    if (bucketName) {
+      const { data: directUrl, error: directError } = await supabaseAdmin
         .storage
-        .from('yourdigitalproducts')
-        .createSignedUrl(cleanFilePath, 3600)
+        .from(bucketName)
+        .createSignedUrl(filePath, 3600)
       
-      if (!fallbackError && fallbackUrl) {
-        signedUrl = fallbackUrl
-        console.log('Signed URL generated from yourdigitalproducts bucket')
+      if (!directError && directUrl) {
+        signedUrl = directUrl
+        console.log(`Signed URL generated from ${bucketName} bucket`)
       } else {
-        signedUrlError = fallbackError || primaryError
-        console.error('Both buckets failed:', signedUrlError?.message)
+        console.log(`Direct bucket ${bucketName} failed:`, directError?.message)
+        signedUrlError = directError
+      }
+    }
+    
+    // Fallback: try digital-products bucket first
+    if (!signedUrl) {
+      const { data: primaryUrl, error: primaryError } = await supabaseAdmin
+        .storage
+        .from('digital-products')
+        .createSignedUrl(filePath, 3600)
+      
+      if (!primaryError && primaryUrl) {
+        signedUrl = primaryUrl
+        console.log('Signed URL generated from digital-products bucket')
+      } else {
+        console.log('Primary bucket failed, trying yourdigitalproducts bucket:', primaryError?.message)
+        
+        // Fallback to yourdigitalproducts bucket
+        const { data: fallbackUrl, error: fallbackError } = await supabaseAdmin
+          .storage
+          .from('yourdigitalproducts')
+          .createSignedUrl(filePath, 3600)
+        
+        if (!fallbackError && fallbackUrl) {
+          signedUrl = fallbackUrl
+          console.log('Signed URL generated from yourdigitalproducts bucket')
+        } else {
+          signedUrlError = fallbackError || primaryError
+          console.error('All buckets failed:', signedUrlError?.message)
+        }
       }
     }
 
