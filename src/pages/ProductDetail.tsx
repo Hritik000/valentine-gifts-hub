@@ -8,9 +8,10 @@ import { useProductBySlug, useRelatedProducts } from '@/hooks/useProducts';
 import { ProductCard } from '@/components/ProductCard';
 import { PaymentModal } from '@/components/PaymentModal';
 import { SampleImagesGallery } from '@/components/SampleImagesGallery';
+import { useCart } from '@/contexts/CartContext';
 import { 
-  Heart, ShoppingBag, Download, Shield, ArrowLeft, 
-  FileText, Clock, RefreshCw, Loader2 
+  Heart, ShoppingBag, ShoppingCart, Download, Shield, ArrowLeft, 
+  FileText, Clock, RefreshCw, Loader2, Check 
 } from 'lucide-react';
 
 const ProductDetail = () => {
@@ -21,6 +22,15 @@ const ProductDetail = () => {
     product?.id || ''
   );
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const { addToCart, isInCart } = useCart();
+  
+  const inCart = product ? isInCart(product.id) : false;
+
+  const handleAddToCart = () => {
+    if (product) {
+      addToCart(product);
+    }
+  };
 
   // Loading state
   if (isLoading) {
@@ -171,8 +181,8 @@ const ProductDetail = () => {
               ))}
             </div>
 
-            {/* Buy Now Button */}
-            <div className="mt-8">
+            {/* Action Buttons */}
+            <div className="mt-8 space-y-3">
               <Button
                 variant="romantic"
                 size="xl"
@@ -181,6 +191,26 @@ const ProductDetail = () => {
               >
                 <ShoppingBag className="w-5 h-5" />
                 Buy Now - ₹{product.price}
+              </Button>
+              
+              <Button
+                variant={inCart ? "outline" : "secondary"}
+                size="lg"
+                className="w-full"
+                onClick={handleAddToCart}
+                disabled={inCart}
+              >
+                {inCart ? (
+                  <>
+                    <Check className="w-5 h-5" />
+                    Added to Cart
+                  </>
+                ) : (
+                  <>
+                    <ShoppingCart className="w-5 h-5" />
+                    Add to Cart
+                  </>
+                )}
               </Button>
             </div>
 

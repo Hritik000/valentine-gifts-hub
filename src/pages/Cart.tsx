@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { Navbar } from '@/components/Navbar';
@@ -5,10 +6,12 @@ import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useCart } from '@/contexts/CartContext';
-import { Trash2, ShoppingBag, ArrowRight, Shield, Lock } from 'lucide-react';
+import { CartCheckoutModal } from '@/components/CartCheckoutModal';
+import { Trash2, ShoppingBag, ArrowRight, Shield, Lock, Package } from 'lucide-react';
 
 const Cart = () => {
   const { items, removeFromCart, getTotal, clearCart } = useCart();
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const total = getTotal();
   const itemCount = items.length;
 
@@ -86,6 +89,10 @@ const Cart = () => {
                               </h3>
                             </Link>
                             <p className="text-sm text-muted-foreground mt-1">{item.category}</p>
+                            <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                              <Package className="w-3 h-3" />
+                              <span>Digital Download</span>
+                            </div>
                           </div>
                           <button
                             onClick={() => removeFromCart(item.id)}
@@ -134,34 +141,39 @@ const Cart = () => {
                 
                 <div className="space-y-3 mb-6">
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Subtotal</span>
+                    <span className="text-muted-foreground">Subtotal ({itemCount} items)</span>
                     <span>₹{total}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Discount</span>
-                    <span className="text-green-600">-₹0</span>
+                    <span className="text-muted-foreground">Delivery</span>
+                    <span className="text-green-600">Instant Download</span>
                   </div>
                   <div className="border-t border-border pt-3">
                     <div className="flex justify-between font-semibold">
-                      <span>Total</span>
-                      <span className="text-xl text-primary">₹{total}</span>
+                      <span>Total Payable</span>
+                      <span className="text-2xl text-primary">₹{total}</span>
                     </div>
                   </div>
                 </div>
 
-                <Button variant="romantic" size="lg" className="w-full mb-4">
+                <Button 
+                  variant="romantic" 
+                  size="lg" 
+                  className="w-full mb-4"
+                  onClick={() => setIsCheckoutOpen(true)}
+                >
                   <Lock className="w-4 h-4 mr-2" />
                   Proceed to Checkout
                 </Button>
 
                 <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
                   <Shield className="w-4 h-4" />
-                  <span>Secure payment with Razorpay</span>
+                  <span>Secure payment • Instant download</span>
                 </div>
 
                 <div className="mt-6 p-4 bg-blush rounded-lg border border-primary/10">
                   <p className="text-sm text-center">
-                    🎉 <strong>Valentine's Special:</strong> Use code <span className="font-mono bg-primary/10 px-2 py-0.5 rounded">LOVE50</span> for extra 10% off!
+                    📥 <strong>Instant Delivery:</strong> Download your products immediately after payment
                   </p>
                 </div>
               </CardContent>
@@ -171,6 +183,11 @@ const Cart = () => {
       </main>
 
       <Footer />
+      
+      <CartCheckoutModal 
+        isOpen={isCheckoutOpen} 
+        onClose={() => setIsCheckoutOpen(false)} 
+      />
     </div>
   );
 };

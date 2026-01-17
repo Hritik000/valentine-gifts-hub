@@ -1,9 +1,10 @@
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { Heart, ArrowRight } from 'lucide-react';
+import { Heart, ArrowRight, ShoppingCart, Check } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Product } from '@/types/product';
+import { useCart } from '@/contexts/CartContext';
 
 interface ProductCardProps {
   product: Product;
@@ -11,9 +12,18 @@ interface ProductCardProps {
 }
 
 export const ProductCard = ({ product, index = 0 }: ProductCardProps) => {
+  const { addToCart, isInCart } = useCart();
+  const inCart = isInCart(product.id);
+  
   const discount = product.originalPrice 
     ? Math.round((1 - product.price / product.originalPrice) * 100) 
     : 0;
+
+  const handleAddToCart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    addToCart(product);
+  };
 
   return (
     <motion.div
@@ -68,7 +78,7 @@ export const ProductCard = ({ product, index = 0 }: ProductCardProps) => {
             {product.shortDescription}
           </p>
 
-          {/* Price & View Details */}
+          {/* Price & Actions */}
           <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
             <div className="flex items-baseline gap-2">
               <span className="text-xl font-display font-bold text-primary">
@@ -81,12 +91,32 @@ export const ProductCard = ({ product, index = 0 }: ProductCardProps) => {
               )}
             </div>
             
-            <Link to={`/product/${product.slug}`}>
-              <Button size="sm" variant="romantic">
-                View
-                <ArrowRight className="w-4 h-4" />
+            <div className="flex items-center gap-2">
+              <Button 
+                size="sm" 
+                variant={inCart ? "outline" : "romantic"}
+                onClick={handleAddToCart}
+                disabled={inCart}
+                className="gap-1"
+              >
+                {inCart ? (
+                  <>
+                    <Check className="w-4 h-4" />
+                    In Cart
+                  </>
+                ) : (
+                  <>
+                    <ShoppingCart className="w-4 h-4" />
+                    Add
+                  </>
+                )}
               </Button>
-            </Link>
+              <Link to={`/product/${product.slug}`}>
+                <Button size="sm" variant="ghost">
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+              </Link>
+            </div>
           </div>
         </CardContent>
       </Card>
