@@ -1,12 +1,45 @@
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { X, CreditCard, Smartphone, Loader2, Shield, Mail } from 'lucide-react';
+import { Smartphone, Loader2, Shield, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+
+declare global {
+  interface Window {
+    Razorpay: new (options: RazorpayOptions) => RazorpayInstance;
+  }
+}
+
+interface RazorpayOptions {
+  key: string;
+  amount: number;
+  currency: string;
+  name: string;
+  description: string;
+  order_id: string;
+  prefill: {
+    email: string;
+    name?: string;
+  };
+  handler: (response: RazorpayResponse) => void;
+  theme: {
+    color: string;
+  };
+}
+
+interface RazorpayInstance {
+  open: () => void;
+  close: () => void;
+}
+
+interface RazorpayResponse {
+  razorpay_payment_id: string;
+  razorpay_order_id: string;
+  razorpay_signature: string;
+}
 
 interface PaymentModalProps {
   isOpen: boolean;
@@ -21,7 +54,6 @@ interface PaymentModalProps {
 
 export const PaymentModal = ({ isOpen, onClose, product }: PaymentModalProps) => {
   const [isProcessing, setIsProcessing] = useState(false);
-  const [selectedMethod, setSelectedMethod] = useState<'razorpay' | 'stripe' | null>(null);
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [emailError, setEmailError] = useState('');
@@ -31,35 +63,21 @@ export const PaymentModal = ({ isOpen, onClose, product }: PaymentModalProps) =>
     return emailRegex.test(email);
   };
 
-  const createOrder = async (paymentMethod: string, paymentId?: string): Promise<string | null> => {
-    try {
-      const { data, error } = await supabase.functions.invoke('create-order', {
-        body: {
-          productId: product.id,
-          customerEmail: customerEmail.trim(),
-          customerName: customerName.trim() || null,
-          paymentMethod,
-          paymentId,
-        }
-      });
-
-      if (error) {
-        console.error('Order creation error:', error);
-        throw new Error(error.message || 'Failed to create order');
+  const loadRazorpayScript = (): Promise<boolean> => {
+    return new Promise((resolve) => {
+      if (window.Razorpay) {
+        resolve(true);
+        return;
       }
-
-      if (!data?.orderId) {
-        throw new Error('No order ID received');
-      }
-
-      return data.orderId;
-    } catch (error) {
-      console.error('Error creating order:', error);
-      throw error;
-    }
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
   };
 
-  const handlePayment = async (method: 'razorpay' | 'stripe') => {
+  const handlePayment = async () => {
     // Validate email before proceeding
     if (!customerEmail.trim()) {
       setEmailError('Email is required');
@@ -72,104 +90,91 @@ export const PaymentModal = ({ isOpen, onClose, product }: PaymentModalProps) =>
     }
 
     setEmailError('');
-    setSelectedMethod(method);
     setIsProcessing(true);
 
     try {
-      if (method === 'razorpay') {
-        const razorpayKey = import.meta.env.VITE_RAZORPAY_KEY_ID;
-        
-        if (!razorpayKey) {
-          toast.info('Razorpay integration pending', {
-            description: 'Processing with demo payment...',
-          });
-          // Create order server-side for demo
-          const orderId = await createOrder('demo');
-          if (orderId) {
-            window.location.href = `/order-confirmation?orderId=${orderId}`;
-          }
-          return;
-        }
-
-        await initiateRazorpayPayment(product, razorpayKey);
-      } else {
-        const stripeKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
-        
-        if (!stripeKey) {
-          toast.info('Stripe integration pending', {
-            description: 'Processing with demo payment...',
-          });
-          // Create order server-side for demo
-          const orderId = await createOrder('demo');
-          if (orderId) {
-            window.location.href = `/order-confirmation?orderId=${orderId}`;
-          }
-          return;
-        }
-
-        await initiateStripePayment(product);
+      // Load Razorpay script
+      const scriptLoaded = await loadRazorpayScript();
+      if (!scriptLoaded) {
+        throw new Error('Failed to load payment gateway');
       }
+
+      // Create Razorpay order via edge function
+      const { data: orderData, error: orderError } = await supabase.functions.invoke('create-razorpay-order', {
+        body: {
+          amount: product.price,
+          currency: 'INR',
+          receipt: `order_${Date.now()}`,
+          notes: {
+            productId: product.id,
+            customerEmail: customerEmail.trim(),
+          },
+        }
+      });
+
+      if (orderError || !orderData?.orderId) {
+        console.error('Razorpay order creation failed:', orderError);
+        throw new Error('Failed to create payment order');
+      }
+
+      // Open Razorpay checkout
+      const options: RazorpayOptions = {
+        key: orderData.keyId,
+        amount: orderData.amount,
+        currency: orderData.currency,
+        name: 'LoveStore',
+        description: product.title,
+        order_id: orderData.orderId,
+        prefill: {
+          email: customerEmail.trim(),
+          name: customerName.trim() || undefined,
+        },
+        handler: async function (response: RazorpayResponse) {
+          try {
+            // Verify payment server-side and create order
+            const { data: verifyData, error: verifyError } = await supabase.functions.invoke('verify-razorpay-payment', {
+              body: {
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+                items: [{ id: product.id, title: product.title, price: product.price, quantity: 1 }],
+                customerEmail: customerEmail.trim(),
+                customerName: customerName.trim() || null,
+                total: product.price,
+              }
+            });
+
+            if (verifyError || !verifyData?.valid) {
+              console.error('Payment verification failed:', verifyError);
+              toast.error('Payment verification failed', {
+                description: 'Please contact support if amount was deducted.',
+              });
+              return;
+            }
+
+            // Success! Redirect to confirmation
+            window.location.href = `/order-confirmation?orderId=${verifyData.orderId}`;
+          } catch (error) {
+            console.error('Error after payment:', error);
+            toast.error('Order creation failed', {
+              description: 'Payment received but order creation failed. Please contact support.',
+            });
+          }
+        },
+        theme: {
+          color: '#E11D48',
+        },
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.open();
     } catch (error) {
       console.error('Payment error:', error);
       toast.error('Payment failed', {
-        description: error instanceof Error ? error.message : 'Please try again or use a different payment method.',
+        description: error instanceof Error ? error.message : 'Please try again.',
       });
     } finally {
       setIsProcessing(false);
-      setSelectedMethod(null);
-    }
-  };
-
-  const initiateRazorpayPayment = async (product: { id: string; title: string; price: number }, key: string) => {
-    const options = {
-      key,
-      amount: product.price * 100, // Razorpay expects amount in paise
-      currency: 'INR',
-      name: 'LoveStore',
-      description: product.title,
-      prefill: {
-        email: customerEmail,
-        name: customerName,
-      },
-      handler: async function (response: { razorpay_payment_id: string }) {
-        try {
-          // Create order server-side with payment ID
-          const orderId = await createOrder('razorpay', response.razorpay_payment_id);
-          if (orderId) {
-            window.location.href = `/order-confirmation?orderId=${orderId}`;
-          }
-        } catch (error) {
-          console.error('Error creating order after payment:', error);
-          toast.error('Order creation failed', {
-            description: 'Payment received but order creation failed. Please contact support.',
-          });
-        }
-      },
-      theme: {
-        color: '#E11D48',
-      },
-    };
-
-    // @ts-ignore - Razorpay would be loaded from script
-    if (window.Razorpay) {
-      // @ts-ignore
-      const rzp = new window.Razorpay(options);
-      rzp.open();
-    } else {
-      // Fallback for demo - create order server-side
-      const orderId = await createOrder('demo');
-      if (orderId) {
-        window.location.href = `/order-confirmation?orderId=${orderId}`;
-      }
-    }
-  };
-
-  const initiateStripePayment = async (product: { id: string; title: string; price: number }) => {
-    // For now, create order with demo payment
-    // In production, this would redirect to Stripe Checkout
-    const orderId = await createOrder('demo');
-    if (orderId) {
-      window.location.href = `/order-confirmation?orderId=${orderId}`;
     }
   };
 
@@ -217,7 +222,7 @@ export const PaymentModal = ({ isOpen, onClose, product }: PaymentModalProps) =>
                 <p className="text-sm text-red-500">{emailError}</p>
               )}
               <p className="text-xs text-muted-foreground">
-                Download link will be sent to this email
+                Your download will be available instantly after payment
               </p>
             </div>
 
@@ -234,46 +239,24 @@ export const PaymentModal = ({ isOpen, onClose, product }: PaymentModalProps) =>
             </div>
           </div>
 
-          {/* Payment Options */}
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground text-center">Choose your payment method</p>
-            
-            <Button
-              variant="outline"
-              className="w-full h-auto py-4 justify-start gap-4 hover:border-primary hover:bg-primary/5"
-              onClick={() => handlePayment('razorpay')}
-              disabled={isProcessing}
-            >
-              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
-                <Smartphone className="w-5 h-5 text-blue-600" />
-              </div>
-              <div className="flex-1 text-left">
-                <div className="font-medium">Pay with Razorpay</div>
-                <div className="text-sm text-muted-foreground">UPI, Cards, Netbanking (India)</div>
-              </div>
-              {isProcessing && selectedMethod === 'razorpay' && (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              )}
-            </Button>
+          {/* Payment Button */}
+          <Button
+            variant="romantic"
+            className="w-full h-auto py-4 text-lg"
+            onClick={handlePayment}
+            disabled={isProcessing}
+          >
+            {isProcessing ? (
+              <Loader2 className="w-5 h-5 animate-spin mr-2" />
+            ) : (
+              <Smartphone className="w-5 h-5 mr-2" />
+            )}
+            {isProcessing ? 'Processing...' : `Pay ₹${product.price} with Razorpay`}
+          </Button>
 
-            <Button
-              variant="outline"
-              className="w-full h-auto py-4 justify-start gap-4 hover:border-primary hover:bg-primary/5"
-              onClick={() => handlePayment('stripe')}
-              disabled={isProcessing}
-            >
-              <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
-                <CreditCard className="w-5 h-5 text-purple-600" />
-              </div>
-              <div className="flex-1 text-left">
-                <div className="font-medium">Pay with Stripe</div>
-                <div className="text-sm text-muted-foreground">International Cards</div>
-              </div>
-              {isProcessing && selectedMethod === 'stripe' && (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              )}
-            </Button>
-          </div>
+          <p className="text-xs text-center text-muted-foreground">
+            UPI, Debit/Credit Cards, Net Banking, Wallets
+          </p>
 
           {/* Trust Badge */}
           <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground pt-2 border-t">
