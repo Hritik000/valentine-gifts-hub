@@ -25,6 +25,11 @@ interface RazorpayOptions {
     name?: string;
   };
   handler: (response: RazorpayResponse) => void;
+  modal?: {
+    ondismiss?: () => void;
+    escape?: boolean;
+    backdropclose?: boolean;
+  };
   theme: {
     color: string;
   };
@@ -33,6 +38,7 @@ interface RazorpayOptions {
 interface RazorpayInstance {
   open: () => void;
   close: () => void;
+  on: (event: string, callback: () => void) => void;
 }
 
 interface RazorpayResponse {
@@ -130,7 +136,12 @@ export const PaymentModal = ({ isOpen, onClose, product }: PaymentModalProps) =>
           name: customerName.trim() || undefined,
         },
         handler: async function (response: RazorpayResponse) {
+          // Show processing state
+          setIsProcessing(true);
+          
           try {
+            console.log('Payment successful, verifying...', response);
+            
             // Verify payment server-side and create order
             const { data: verifyData, error: verifyError } = await supabase.functions.invoke('verify-razorpay-payment', {
               body: {
@@ -144,8 +155,11 @@ export const PaymentModal = ({ isOpen, onClose, product }: PaymentModalProps) =>
               }
             });
 
+            console.log('Verification response:', verifyData, verifyError);
+
             if (verifyError || !verifyData?.valid) {
               console.error('Payment verification failed:', verifyError);
+              setIsProcessing(false);
               toast.error('Payment verification failed', {
                 description: 'Please contact support if amount was deducted.',
               });
@@ -153,13 +167,26 @@ export const PaymentModal = ({ isOpen, onClose, product }: PaymentModalProps) =>
             }
 
             // Success! Redirect to confirmation
-            window.location.href = `/order-confirmation?orderId=${verifyData.orderId}`;
+            console.log('Verification successful, redirecting to:', `/order-confirmation?orderId=${verifyData.orderId}`);
+            onClose();
+            
+            // Use replace to prevent back navigation to checkout
+            window.location.replace(`/order-confirmation?orderId=${verifyData.orderId}`);
           } catch (error) {
             console.error('Error after payment:', error);
+            setIsProcessing(false);
             toast.error('Order creation failed', {
               description: 'Payment received but order creation failed. Please contact support.',
             });
           }
+        },
+        modal: {
+          ondismiss: function () {
+            console.log('Razorpay modal dismissed');
+            setIsProcessing(false);
+          },
+          escape: true,
+          backdropclose: false,
         },
         theme: {
           color: '#E11D48',
@@ -167,14 +194,25 @@ export const PaymentModal = ({ isOpen, onClose, product }: PaymentModalProps) =>
       };
 
       const rzp = new window.Razorpay(options);
+      
+      // Handle payment failure
+      rzp.on('payment.failed', function () {
+        console.log('Payment failed');
+        setIsProcessing(false);
+        toast.error('Payment failed', {
+          description: 'Your payment could not be processed. Please try again.',
+        });
+      });
+      
       rzp.open();
+      
+      // Don't set processing to false here - wait for handler or modal dismiss
     } catch (error) {
       console.error('Payment error:', error);
+      setIsProcessing(false);
       toast.error('Payment failed', {
         description: error instanceof Error ? error.message : 'Please try again.',
       });
-    } finally {
-      setIsProcessing(false);
     }
   };
 
