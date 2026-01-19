@@ -1,6 +1,5 @@
-import { motion } from 'framer-motion';
 import { Heart } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useMemo } from 'react';
 
 interface FloatingHeart {
   id: number;
@@ -12,40 +11,30 @@ interface FloatingHeart {
 }
 
 export const FloatingHearts = () => {
-  const [hearts, setHearts] = useState<FloatingHeart[]>([]);
-
-  useEffect(() => {
-    const newHearts: FloatingHeart[] = Array.from({ length: 15 }, (_, i) => ({
+  // Generate hearts once on mount using useMemo to prevent re-renders
+  const hearts = useMemo<FloatingHeart[]>(() => 
+    Array.from({ length: 12 }, (_, i) => ({
       id: i,
       x: Math.random() * 100,
       delay: Math.random() * 5,
-      duration: 8 + Math.random() * 10,
-      size: 12 + Math.random() * 20,
-      opacity: 0.1 + Math.random() * 0.3,
-    }));
-    setHearts(newHearts);
-  }, []);
+      duration: 10 + Math.random() * 10,
+      size: 12 + Math.random() * 16,
+      opacity: 0.08 + Math.random() * 0.15,
+    })), []
+  );
 
   return (
-    <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
+    <div className="fixed inset-0 pointer-events-none overflow-hidden z-0" aria-hidden="true">
       {hearts.map((heart) => (
-        <motion.div
+        <div
           key={heart.id}
-          className="absolute text-primary"
+          className="absolute text-primary animate-float-heart"
           style={{ 
             left: `${heart.x}%`,
             opacity: heart.opacity,
-          }}
-          initial={{ y: '100vh', rotate: 0 }}
-          animate={{ 
-            y: '-10vh', 
-            rotate: 360,
-          }}
-          transition={{
-            duration: heart.duration,
-            delay: heart.delay,
-            repeat: Infinity,
-            ease: 'linear',
+            animationDuration: `${heart.duration}s`,
+            animationDelay: `${heart.delay}s`,
+            willChange: 'transform',
           }}
         >
           <Heart 
@@ -53,7 +42,7 @@ export const FloatingHearts = () => {
             fill="currentColor" 
             className="text-primary/30"
           />
-        </motion.div>
+        </div>
       ))}
     </div>
   );
