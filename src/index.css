@@ -188,6 +188,67 @@
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
+
+  /* Shimmer effect for badges */
+  .shimmer-badge {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .shimmer-badge::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      hsl(43 100% 70% / 0.3),
+      transparent
+    );
+    animation: shimmer-slide 3s ease-in-out infinite;
+  }
+
+  /* Shimmer effect for buttons */
+  .shimmer-button {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .shimmer-button::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      hsl(0 0% 100% / 0.2),
+      transparent
+    );
+    animation: shimmer-slide 2.5s ease-in-out infinite;
+  }
+
+  /* Shimmer overlay for countdown */
+  .shimmer-overlay {
+    background: linear-gradient(
+      135deg,
+      transparent 40%,
+      hsl(43 100% 70% / 0.1) 50%,
+      transparent 60%
+    );
+    background-size: 200% 200%;
+    animation: shimmer-diagonal 3s ease-in-out infinite;
+  }
+
+  /* Drop shadow glow for text */
+  .drop-shadow-glow {
+    filter: drop-shadow(0 0 8px hsl(355 82% 56% / 0.4));
+  }
 }
 
 @layer utilities {
@@ -251,5 +312,30 @@
 
   .animate-float-heart {
     animation: float-heart linear infinite;
+  }
+
+  @keyframes shimmer-slide {
+    0% { left: -100%; }
+    50%, 100% { left: 100%; }
+  }
+
+  @keyframes shimmer-diagonal {
+    0% { background-position: 200% 200%; }
+    100% { background-position: -200% -200%; }
+  }
+
+  @keyframes sparkle {
+    0%, 100% { 
+      opacity: 1; 
+      transform: scale(1) rotate(0deg); 
+    }
+    50% { 
+      opacity: 0.6; 
+      transform: scale(1.2) rotate(180deg); 
+    }
+  }
+
+  .animate-sparkle {
+    animation: sparkle 2s ease-in-out infinite;
   }
 }
